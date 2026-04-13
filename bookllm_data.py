@@ -18,11 +18,12 @@ import tqdm
 
 from rouge_score import rouge_scorer
 from pprint import pprint
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from bookllm_utilities import *
 
 # Parameters
-backbone = 'meta-llama/Meta-Llama-3-70B'
+# backbone = 'meta-llama/Meta-Llama-3-70B'
+backbone = 'meta-llama/Meta-Llama-3-8B'
 device   = torch.device('mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu')
 
 #%% UTILITIES
@@ -65,19 +66,28 @@ class SentenceLoader:
         if batch:
             yield batch
 
-#%% LOADS MODEL
+#%% LOADS MODEL AND TOKENIZER
 
 if 'model' not in dir():
-    model     = AutoModelForCausalLM.from_pretrained(backbone, torch_dtype=torch.bfloat16, device_map='auto')
-    tokenizer = AutoTokenizer.from_pretrained(backbone)
+    config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
+    model  = AutoModelForCausalLM.from_pretrained(
+        backbone, 
+        quantization_config=config,
+        device_map='auto',
+        token='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')
+
+if 'tokenizer' not in dir():
+    tokenizer = AutoTokenizer.from_pretrained(
+        backbone,
+        token='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')
     tokenizer.pad_token    = tokenizer.eos_token
-    tokenizer.padding_side = 'left' 
+    tokenizer.padding_side = 'left'
 
 #%% FORMATS DATA
 
 for title in ...:
 
-    # Loads data
+    # Loads dataé
     book  = fitz.open(f'{paths.data}/galimard/{title}.pdf')
     book  = [page for page in book if page.get_text().strip()]
 
