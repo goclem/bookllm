@@ -22,8 +22,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from bookllm_utilities import *
 
 # Parameters
-# backbone = 'meta-llama/Meta-Llama-3-70B'
-backbone = 'meta-llama/Meta-Llama-3-8B'
+backbone = 'meta-llama/Meta-Llama-3-70B Chat'
+# backbone = 'meta-llama/Meta-Llama-3-8B'
 device   = torch.device('mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu')
 
 #%% UTILITIES
@@ -85,15 +85,17 @@ if 'tokenizer' not in dir():
 
 #%% FORMATS DATA
 
-for title in ...:
+books = search_data(f'{paths.data}', pattern=r'.*\.pdf$', kind='file')
 
-    # Loads dataé
-    book  = fitz.open(f'{paths.data}/galimard/{title}.pdf')
-    book  = [page for page in book if page.get_text().strip()]
+for title in books:
+
+    # Loads text
+    pages = fitz.open(f'{paths.data}/galimard/{title}.pdf')
+    pages = [page for page in pages if page.get_text().strip()]
 
     # Extracts sentences
     sentences = []
-    for page in book:
+    for page in pages:
         text = page.get_text()
         text = clean_text(text)
         text = split_sentences(text)
