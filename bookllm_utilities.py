@@ -34,8 +34,8 @@ if os.getlogin() == 'clgorin':
     paths = argparse.Namespace(
         desktop=f'{home}/Desktop',
         downloads=f'{home}/Downloads',
-        data=f'{home}/Desktop/temporary/bookllm',
-        results=f'{home}/Library/CloudStorage/Dropbox/consultancy/bookllm/results'
+        data='E:/ClementGorin/bookllm',
+        results='E:/ClementGorin/bookllm/results'
     )
     del home
 
