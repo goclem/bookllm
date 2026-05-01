@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 '''
-@description: Prepares data for the bookllm project
+@description: Computes metrics for the BookLLM project
 @author: Clement Gorin
 @contact: clement.gorin@univ-paris1.fr
 '''
@@ -18,13 +18,14 @@ import tqdm
 
 from rouge_score import rouge_scorer
 from pprint import pprint
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForTokenClassification, AutoModelForCausalLM, BitsAndBytesConfig, pipeline
 from bookllm_utilities import *
 
 # Parameters
-backbone = 'meta-llama/Meta-Llama-3-70B' #! Base model
-# backbone = 'meta-llama/Meta-Llama-3-8B' #! For testing
-device   = torch.device('mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu')
+llama_backbone = 'meta-llama/Meta-Llama-3-70B'
+ner_backbone   = 'Jean-Baptiste/camembert-ner-with-dates'
+# backbone = 'meta-llama/Meta-Llama-3-8B'  #! For testing
+device   = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
 
 #%% UTILITIES
 
@@ -42,16 +43,16 @@ def split_sentences(text):
 
 class SentenceLoader:
 
-    def __init__(self, sentences:list, n_context:int=3, n_target:int=1, stride:int=1, sample_size:int=None, batch_size:int=1, seed:int=0) -> None:
+    def __init__(self, sentences:list, n_context:int=3, n_target:int=1, stride:int=1, max_samples:int=None, seed:int=0) -> None:
         self.sentences  = sentences
         self.n_context  = n_context
         self.n_target   = n_target
         self.stride     = stride
-        self.batch_size = batch_size
+        self.batch_size = 1 # Hard coded given memory constraints
         self.indices    = range(n_context, len(sentences) - n_target + 1, self.stride)
-        if sample_size is not None:
+        if max_samples is not None and len(self.indices) > max_samples:
             rng = np.random.default_rng(seed)
-            self.indices = rng.choice(list(self.indices), size=sample_size, replace=False)
+            self.indices = rng.choice(list(self.indices), size=max_samples, replace=False)
 
     def __len__(self):
         return int(math.ceil(len(self.indices) / self.batch_size))
@@ -78,33 +79,46 @@ def pval_to_stars(p):
     else:
         return ''
 
-#%% LOADS MODEL AND TOKENIZER
+#%% LOADS TOKENIZER AND MODELS
 
-if 'model' not in dir():
-    config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
-    model  = AutoModelForCausalLM.from_pretrained(
-        backbone, 
-        quantization_config=config,
+# Llama model
+if 'llama_model' not in dir():
+    llama_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
+    llama_model  = AutoModelForCausalLM.from_pretrained(
+        llama_backbone, 
+        quantization_config=llama_config,
         device_map='auto',
         token='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')
 
-if 'tokenizer' not in dir():
-    tokenizer = AutoTokenizer.from_pretrained(
-        backbone,
+# Llama tokeniser
+if 'llama_tokenizer' not in dir():
+    llama_tokenizer = AutoTokenizer.from_pretrained(
+        llama_backbone,
         token='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')
-    tokenizer.pad_token    = tokenizer.eos_token
-    tokenizer.padding_side = 'left'
+    llama_tokenizer.pad_token    = llama_tokenizer.eos_token
+    llama_tokenizer.padding_side = 'left'
+
+# NER pipeline
+if 'ner_pipeline' not in dir():
+    ner_tokenizer = AutoTokenizer.from_pretrained(ner_backbone)
+    ner_model     = AutoModelForTokenClassification.from_pretrained(ner_backbone)
+    ner_pipeline = pipeline('ner', model=ner_model, tokenizer=ner_tokenizer, aggregation_strategy='simple')
+
+entities = ner_pipeline('Emmanuel Macron est né à Amiens en 1977.')
 
 #%% FORMATS DATA
 
+# Books
 books = search_data(f'{paths.data}', pattern='pdf$', kind='file')
+label = 'sentence_results' # Label for the output file
 
+# Iterates over books
 for book in books:
 
-    # Skips existing
-    dstfile = f'{paths.results}/results_{filename(book)}_results.csv'
+    # Skips of results already exist
+    dstfile = f'{paths.results}/results_{filename(book)}_{label}.csv'
     if os.path.exists(dstfile):
-        print(f'{book} already exists, skipping.')
+        print(f'{dstfile} already exists, skipping.')
         continue
 
     # Loads text
@@ -121,41 +135,80 @@ for book in books:
     del page, text
 
     # Initialises loader
-    loader = SentenceLoader(sentences, n_context=3, n_target=2, stride=2, batch_size=1, sample_size=None)
-    scorer = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=False)
+    loader = SentenceLoader(
+        sentences, 
+        n_context=3, 
+        n_target=2, 
+        stride=2, 
+        max_samples=10, 
+        seed=0
+    )
+
+    ''' #! Testing
+    context = 'The quick brown fox jumps over the'
+    target  = 'lazy dog'
+    '''
 
     # Computes metrics
     results  = []
+    rougel   = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=False)
     progress = tqdm.tqdm(loader, total=len(loader), desc='Verbatim test')
     running_rougel, running_perplex, running_n = 0, 0, 0
+    
     for batch in progress:
-        context, target = batch[0]
+        context, target = batch[0] # Given batch size of 1
+        
         # Verbatim completion
-        inputs_c = tokenizer(context, return_tensors='pt').to(model.device)
-        # max_new  = len(target.split()) + 5
-        max_new  = len(tokenizer(target).input_ids) + 5
+        context_tokens = llama_tokenizer(context, return_tensors='pt').to(llama_model.device)
+        target_tokens  = llama_tokenizer(target).input_ids
         with torch.no_grad():
-            outputs = model.generate(**inputs_c, max_new_tokens=max_new, do_sample=False, pad_token_id=tokenizer.eos_token_id)
-        prediction   = tokenizer.decode(outputs[0, inputs_c.input_ids.shape[-1]:], skip_special_tokens=True)
-        rougel_score = scorer.score(target, prediction)['rougeL'].fmeasure
+            outputs = llama_model.generate(
+                **context_tokens, 
+                max_new_tokens=len(target_tokens) + 5, 
+                do_sample=False, 
+                pad_token_id=llama_tokenizer.eos_token_id)
+        prediction   = outputs[0, context_tokens.input_ids.shape[-1]:] # Remove context tokens
+        prediction   = llama_tokenizer.decode(prediction, skip_special_tokens=True)
+        rougel_score = rougel.score(target, prediction)['rougeL'].fmeasure
+        
         # Perplexity score
-        inputs_f = tokenizer(context + ' ' + target, return_tensors='pt').to(model.device)
-        labels   = inputs_f.input_ids.clone()
-        labels[:, :inputs_c.input_ids.shape[-1]] = -100
+        full_tokens = llama_tokenizer(context + ' ' + target, return_tensors='pt').to(llama_model.device)
+        mask_tokens = full_tokens.input_ids.clone()
+        mask_tokens[:, :context_tokens.input_ids.shape[-1]] = -100 # Mask context tokens
         with torch.no_grad():
-            perplex_score = torch.exp(model(**inputs_f, labels=labels).loss).item()
-        # Statistics
+            perplex_score = torch.exp(llama_model(**full_tokens, labels=mask_tokens).loss).item()
+        
+        # Named entity recognition
+        entities_target     = ner_pipeline(target)
+        entities_target     = [(entity['word'], entity['entity_group']) for entity in entities_target]
+        entities_prediction = ner_pipeline(prediction)
+        entities_prediction = [(entity['word'], entity['entity_group']) for entity in entities_prediction]
+
+        # Collects results
         running_rougel  += rougel_score
         running_perplex += perplex_score
         running_n       += 1
-        results.append({'context':context, 'target':target, 'prediction':prediction, 'rougel':rougel_score, 'perplexity':perplex_score})
-        progress.set_postfix({'rougel': f'{running_rougel/running_n:.3f}', 'ppl': f'{running_perplex/running_n:.3f}'})
+        results.append({
+            'context':context, 
+            'target':target, 
+            'prediction':prediction, 
+            'rougel':rougel_score, 
+            'perplexity':perplex_score,
+            'target_tokens':len(target_tokens),
+            'entities_target':entities_target,
+            'entities_prediction':entities_prediction})
+        
+        # Prints average statistics
+        progress.set_postfix({
+            'rougel':     f'{running_rougel/running_n:.3f}', 
+            'perplexity': f'{running_perplex/running_n:.3f}'
+        })
 
     # Saves results
     results = pd.DataFrame(results)
     results.to_csv(dstfile, index=False)
 
-#%% RESULTS
+#%% EXPLORES RESULTS
 
 # Packages
 import pandas as pd
