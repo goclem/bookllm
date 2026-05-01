@@ -21,12 +21,6 @@ from pprint import pprint
 from transformers import AutoTokenizer, AutoModelForTokenClassification, AutoModelForCausalLM, BitsAndBytesConfig, pipeline
 from bookllm_utilities import *
 
-# Parameters
-llama_backbone = 'meta-llama/Meta-Llama-3-70B'
-ner_backbone   = 'Jean-Baptiste/camembert-ner-with-dates'
-# backbone = 'meta-llama/Meta-Llama-3-8B'  #! For testing
-device   = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
-
 #%% UTILITIES
 
 def clean_text(text):
@@ -69,17 +63,18 @@ class SentenceLoader:
         if batch:
             yield batch
 
-def pval_to_stars(p):
-    if p < 0.01:
-        return '***'
-    elif p < 0.05:
-        return '**'
-    elif p < 0.1:
-        return '*'
-    else:
-        return ''
-
 #%% LOADS TOKENIZER AND MODELS
+
+# Parameters
+llama_backbone = 'meta-llama/Meta-Llama-3-70B'
+ner_backbone   = 'Jean-Baptiste/camembert-ner-with-dates'
+device         = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
+
+''' #! For testing only
+llama_backbone = 'meta-llama/Meta-Llama-3-8B'
+context = 'The quick brown fox jumps over the'
+target  = 'lazy dog'
+'''
 
 # Llama token
 with open(f'{paths.data}/hf_token.txt', 'r') as file:
@@ -146,11 +141,6 @@ for book in books:
         max_samples=None,
         seed=0
     )
-
-    ''' #! Testing
-    context = 'The quick brown fox jumps over the'
-    target  = 'lazy dog'
-    '''
 
     # Computes metrics
     results  = []

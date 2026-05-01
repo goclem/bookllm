@@ -7,14 +7,6 @@
 @contact: clement.gorin@univ-paris1.fr
 '''
 
-# Packages
-import fitz
-import math
-import pandas as pd
-import re
-import torch
-import tqdm
-
 #%% EXPLORES RESULTS
 
 # Packages
@@ -23,6 +15,16 @@ import matplotlib.pyplot as plt
 from scipy import stats
 from bookllm_utilities import *
 from matplotlib.backends.backend_pdf import PdfPages
+
+def pval_to_stars(p):
+    if p < 0.01:
+        return '***'
+    elif p < 0.05:
+        return '**'
+    elif p < 0.1:
+        return '*'
+    else:
+        return ''
 
 colours = {'target': 'blue', 'control': 'orange'}
 
