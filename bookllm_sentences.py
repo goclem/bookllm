@@ -81,6 +81,9 @@ def pval_to_stars(p):
 
 #%% LOADS TOKENIZER AND MODELS
 
+with open(f'{paths.data}/llama_token.txt', 'r') as file:
+    token = file.read().strip()
+
 # Llama model
 if 'llama_model' not in dir():
     llama_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
@@ -88,13 +91,13 @@ if 'llama_model' not in dir():
         llama_backbone, 
         quantization_config=llama_config,
         device_map='auto',
-        token='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')
+        token=token)
 
 # Llama tokeniser
 if 'llama_tokenizer' not in dir():
     llama_tokenizer = AutoTokenizer.from_pretrained(
         llama_backbone,
-        token='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')
+        token=token)
     llama_tokenizer.pad_token    = llama_tokenizer.eos_token
     llama_tokenizer.padding_side = 'left'
 
