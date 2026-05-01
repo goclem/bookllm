@@ -105,9 +105,7 @@ if 'llama_tokenizer' not in dir():
 if 'ner_pipeline' not in dir():
     ner_tokenizer = AutoTokenizer.from_pretrained(ner_backbone)
     ner_model     = AutoModelForTokenClassification.from_pretrained(ner_backbone)
-    ner_pipeline = pipeline('ner', model=ner_model, tokenizer=ner_tokenizer, aggregation_strategy='simple')
-
-entities = ner_pipeline('Emmanuel Macron est né à Amiens en 1977.')
+    ner_pipeline  = pipeline('ner', model=ner_model, tokenizer=ner_tokenizer, aggregation_strategy='simple')
 
 #%% FORMATS DATA
 
