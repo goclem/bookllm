@@ -43,7 +43,7 @@ def split_sentences(text):
 
 class SentenceLoader:
 
-    def __init__(self, sentences:list, n_context:int=3, n_target:int=1, stride:int=1, max_samples:int=None, seed:int=0) -> None:
+    def __init__(self, sentences:list, n_context:int=3, n_target:int=2, stride:int=2, max_samples:int=None, seed:int=0) -> None:
         self.sentences  = sentences
         self.n_context  = n_context
         self.n_target   = n_target
@@ -140,7 +140,7 @@ for book in books:
         n_context=3, 
         n_target=2, 
         stride=2, 
-        max_samples=10, 
+        max_samples=None,
         seed=0
     )
 
