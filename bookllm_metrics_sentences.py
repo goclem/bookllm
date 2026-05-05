@@ -81,18 +81,18 @@ with open(f'{paths.data}/hf_token.txt', 'r') as file:
     token = file.read().strip()
 
 # Llama model and tokenizer
-if 'llama_model' or 'llama_tokenizer' not in dir():
+if 'llama_tokenizer' or 'llama_model' not in dir():
+    llama_tokenizer = AutoTokenizer.from_pretrained(
+        llama_backbone,
+        token=token)
+    llama_tokenizer.pad_token    = llama_tokenizer.eos_token
+    llama_tokenizer.padding_side = 'left'
     llama_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
     llama_model  = AutoModelForCausalLM.from_pretrained(
         llama_backbone, 
         quantization_config=llama_config,
         device_map='auto',
         token=token)
-    llama_tokenizer = AutoTokenizer.from_pretrained(
-        llama_backbone,
-        token=token)
-    llama_tokenizer.pad_token    = llama_tokenizer.eos_token
-    llama_tokenizer.padding_side = 'left'
 
 # NER pipeline
 if 'ner_pipeline' not in dir():
@@ -107,7 +107,7 @@ if 'ner_pipeline' not in dir():
 #%% FORMATS DATA
 
 # Books
-books = search_data(f'{paths.data}', pattern='pdf$', kind='file')
+books = search_data(f'{paths.data}', pattern='pdf$', kind='file') #! Change folder
 label = 'sentence_results' # Label for the output file
 
 # Iterates over books
@@ -149,7 +149,9 @@ for book in books:
     running_rougel, running_perplex, running_n = 0, 0, 0
     
     for batch in progress:
-        context, target = batch[0] # Given batch size of 1
+
+        # Given batch size of 1
+        context, target = batch[0]
         
         # Verbatim completion
         context_tokens = llama_tokenizer(context, return_tensors='pt').to(llama_model.device)
@@ -172,11 +174,10 @@ for book in books:
             perplex_score = torch.exp(llama_model(**full_tokens, labels=mask_tokens).loss).item()
         
         # Named entity recognition
-        entities_target     = ner_pipeline(target)
-        entities_target     = [(entity['word'], entity['entity_group']) for entity in entities_target]
-        entities_prediction = ner_pipeline(prediction)
-        entities_prediction = [(entity['word'], entity['entity_group']) for entity in entities_prediction]
-
+        entities_context    = [(entity['word'], entity['entity_group']) for entity in ner_pipeline(context)]
+        entities_target     = [(entity['word'], entity['entity_group']) for entity in ner_pipeline(target)]
+        entities_prediction = [(entity['word'], entity['entity_group']) for entity in ner_pipeline(prediction)]
+        
         # Collects results
         running_rougel  += rougel_score
         running_perplex += perplex_score
@@ -188,6 +189,7 @@ for book in books:
             'rougel':rougel_score, 
             'perplexity':perplex_score,
             'target_tokens':len(target_tokens),
+            'entities_context':entities_context,
             'entities_target':entities_target,
             'entities_prediction':entities_prediction})
         
